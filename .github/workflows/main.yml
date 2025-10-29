@@ -139,9 +139,11 @@ jobs:
           wget -q https://github.com/ZyCromerZ/Clang/releases/download/22.0.0git-20250928-release/Clang-22.0.0git-20250928.tar.gz
           
           # Extract
-          tar -xzf Clang-22.0.0git-20250928.tar.gz
+          tar -xzf Clang-22.0.0git-20250928.tar.gz --strip-components=1
           rm Clang-22.0.0git-20250928.tar.gz
           
+          # Add to PATH for current and future steps
+          echo "/tmp/clang/bin" >> $GITHUB_PATH
           echo "CLANG_PATH=/tmp/clang/bin" >> $GITHUB_ENV
           
           # Verify clang is working
@@ -160,8 +162,13 @@ jobs:
           wget -q https://developer.arm.com/-/media/Files/downloads/gnu/14.3.rel1/binrel/arm-gnu-toolchain-14.3.rel1-x86_64-arm-none-eabi.tar.xz
           tar -xf arm-gnu-toolchain-14.3.rel1-x86_64-arm-none-eabi.tar.xz
           
+          # Set environment variables
           echo "ARM64_TOOLCHAIN=/tmp/toolchains/arm-gnu-toolchain-14.3.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-" >> $GITHUB_ENV
           echo "ARM32_TOOLCHAIN=/tmp/toolchains/arm-gnu-toolchain-14.3.rel1-x86_64-arm-none-eabi/bin/arm-none-eabi-" >> $GITHUB_ENV
+          
+          # Add to PATH
+          echo "/tmp/toolchains/arm-gnu-toolchain-14.3.rel1-x86_64-aarch64-none-linux-gnu/bin" >> $GITHUB_PATH
+          echo "/tmp/toolchains/arm-gnu-toolchain-14.3.rel1-x86_64-arm-none-eabi/bin" >> $GITHUB_PATH
           
       - name: Clone Kernel Source
         run: |
