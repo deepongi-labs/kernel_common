@@ -135,11 +135,17 @@ jobs:
           mkdir -p /tmp/clang
           cd /tmp/clang
           
-          # Download Clang 21.1.0 (adjust URL as needed)
-          wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r522817.tar.gz
-          tar -xzf clang-r522817.tar.gz
+          # Download ZyCromerZ Clang 22.0.0
+          wget -q https://github.com/ZyCromerZ/Clang/releases/download/22.0.0git-20250928-release/Clang-22.0.0git-20250928.tar.gz
+          
+          # Extract
+          tar -xzf Clang-22.0.0git-20250928.tar.gz
+          rm Clang-22.0.0git-20250928.tar.gz
           
           echo "CLANG_PATH=/tmp/clang/bin" >> $GITHUB_ENV
+          
+          # Verify clang is working
+          /tmp/clang/bin/clang --version
           
       - name: Download ARM Toolchains
         run: |
