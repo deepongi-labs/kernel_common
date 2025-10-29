@@ -81,7 +81,7 @@ jobs:
       - name: Set Working Directory
         run: |
           # Copy build script to /home/runner/work
-          cp /home/runner/work/kernel_common/kernel_common/build-scripts/build_new_opt_v5-lts.sh /home/runner/work/
+          cp $GITHUB_WORKSPACE/build_new_opt_v5-lts.sh /home/runner/work/
           
           # Set working directory as environment variable for all subsequent steps
           echo "WORK_DIR=/home/runner/work" >> $GITHUB_ENV
@@ -94,7 +94,7 @@ jobs:
           echo "BUILD_CLEAN=${{ github.event.inputs.build_clean || 'always' }}" >> $GITHUB_ENV
           
           # Set Git SHA for artifact naming
-          cd /home/runner/work/kernel_common/kernel_common/build-scripts
+          cd $GITHUB_WORKSPACE
           echo "GIT_SHORT_SHA=$(git rev-parse --short=7 HEAD)" >> $GITHUB_ENV
           
           # Set thread count
