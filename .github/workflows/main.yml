@@ -1,0 +1,251 @@
+name: Build Android Kernel with KernelSU-Next
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      lto_type:
+        description: 'LTO Type'
+        required: false
+        default: 'thin'
+        type: choice
+        options:
+          - full
+          - thin
+          - none
+      pixel8a:
+        description: 'Enable Pixel 8a config'
+        required: false
+        default: 'y'
+        type: choice
+        options:
+          - y
+          - n
+      build_clean:
+        description: 'Clean build mode'
+        required: false
+        default: 'always'
+        type: choice
+        options:
+          - always
+          - auto
+          - never
+
+env:
+  # Build configuration
+  KERNEL_DIR: common
+  CONFIG_FILE: arch/arm64/configs/gki_defconfig
+  OUT_DIR: out
+  RESET_COMMIT: 67d6b8170
+  LOCALVERSION: -deepongi
+  
+  # Repository configuration
+  KERNEL_REPO: git@github.com:aosp-mirror/kernel_common.git
+  KERNEL_BRANCH: android14-6.1-lts
+  KSUN_BRANCH: next-susfs
+  ANYKERNEL_DIR: AnyKernel3-p8a
+  ANYKERNEL_BRANCH: gki-2.0
+  SUSFS_BRANCH: gki-android14-6.1-lts-dev
+  PATCHES_BRANCH: main
+  
+  # Output configuration
+  ZIP_PREFIX: AK3-A14-6.1.155-KSUN
+  BUILDS_DIR: builds/6.1.155
+  
+  # Build optimization
+  USE_CCACHE: 1
+  REPO_DEPTH: 1
+  RETRY: 3
+
+jobs:
+  build:
+    name: Build Kernel
+    runs-on: ubuntu-24.04
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: Set up Environment Variables
+        run: |
+          # Set build parameters from workflow inputs or defaults
+          echo "LTO_TYPE=${{ github.event.inputs.lto_type || 'thin' }}" >> $GITHUB_ENV
+          echo "PIXEL8A=${{ github.event.inputs.pixel8a || 'y' }}" >> $GITHUB_ENV
+          echo "BUILD_CLEAN=${{ github.event.inputs.build_clean || 'always' }}" >> $GITHUB_ENV
+          
+          # Set Git SHA for artifact naming
+          echo "GIT_SHORT_SHA=$(git rev-parse --short=7 HEAD)" >> $GITHUB_ENV
+          
+          # Set thread count
+          echo "THREADS=$(nproc)" >> $GITHUB_ENV
+          
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: false
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: false
+          
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            git make zip unzip curl wget \
+            patch sed gawk bc bison flex \
+            build-essential libssl-dev libelf-dev \
+            libncurses-dev libfl-dev \
+            ccache python3 python3-pip \
+            git-lfs \
+            kmod cpio
+            
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-ccache-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-
+          max-size: 5G
+          
+      - name: Download and Extract Clang
+        run: |
+          mkdir -p /tmp/clang
+          cd /tmp/clang
+          
+          # Download Clang 21.1.0 (adjust URL as needed)
+          wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r522817.tar.gz
+          tar -xzf clang-r522817.tar.gz
+          
+          echo "CLANG_PATH=/tmp/clang/bin" >> $GITHUB_ENV
+          
+      - name: Download ARM Toolchains
+        run: |
+          mkdir -p /tmp/toolchains
+          cd /tmp/toolchains
+          
+          # ARM64 toolchain
+          wget -q https://developer.arm.com/-/media/Files/downloads/gnu/14.3.rel1/binrel/arm-gnu-toolchain-14.3.rel1-x86_64-aarch64-none-linux-gnu.tar.xz
+          tar -xf arm-gnu-toolchain-14.3.rel1-x86_64-aarch64-none-linux-gnu.tar.xz
+          
+          # ARM32 toolchain
+          wget -q https://developer.arm.com/-/media/Files/downloads/gnu/14.3.rel1/binrel/arm-gnu-toolchain-14.3.rel1-x86_64-arm-none-eabi.tar.xz
+          tar -xf arm-gnu-toolchain-14.3.rel1-x86_64-arm-none-eabi.tar.xz
+          
+          echo "ARM64_TOOLCHAIN=/tmp/toolchains/arm-gnu-toolchain-14.3.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-" >> $GITHUB_ENV
+          echo "ARM32_TOOLCHAIN=/tmp/toolchains/arm-gnu-toolchain-14.3.rel1-x86_64-arm-none-eabi/bin/arm-none-eabi-" >> $GITHUB_ENV
+          
+      - name: Setup SSH for Git
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          
+      - name: Clone Kernel Source
+        run: |
+          # Add GitHub to known hosts
+          mkdir -p ~/.ssh
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+          
+          # Clone kernel repository
+          git clone --depth=${{ env.REPO_DEPTH }} \
+            -b ${{ env.KERNEL_BRANCH }} \
+            ${{ env.KERNEL_REPO }} \
+            ${{ env.KERNEL_DIR }}
+            
+      - name: Run Build Script
+        run: |
+          chmod +x build_new_opt_v5-lts.sh
+          ./build_new_opt_v5-lts.sh
+          
+      - name: Calculate Build Info
+        if: success()
+        id: build_info
+        run: |
+          # Get the built zip file
+          ZIP_FILE=$(ls ${{ env.BUILDS_DIR }}/*.zip | head -n 1)
+          ZIP_NAME=$(basename "$ZIP_FILE")
+          ZIP_SIZE=$(du -h "$ZIP_FILE" | cut -f1)
+          
+          echo "zip_file=$ZIP_FILE" >> $GITHUB_OUTPUT
+          echo "zip_name=$ZIP_NAME" >> $GITHUB_OUTPUT
+          echo "zip_size=$ZIP_SIZE" >> $GITHUB_OUTPUT
+          
+          # Extract build info from filename
+          echo "build_label=$(echo $ZIP_NAME | sed 's/.*-\([0-9TZ-]*\)-.*.zip/\1/')" >> $GITHUB_OUTPUT
+          
+      - name: Upload Kernel Artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build_info.outputs.zip_name }}
+          path: ${{ steps.build_info.outputs.zip_file }}
+          retention-days: 30
+          
+      - name: Upload Build Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-${{ github.run_number }}
+          path: |
+            ${{ env.KERNEL_DIR }}/${{ env.OUT_DIR }}/.config
+            ${{ env.KERNEL_DIR }}/${{ env.OUT_DIR }}/compile.log
+          retention-days: 7
+          if-no-files-found: ignore
+          
+      - name: Create Release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && success()
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.build_info.outputs.build_label }}
+          name: Kernel Build ${{ steps.build_info.outputs.build_label }}
+          body: |
+            ## Kernel Build Information
+            
+            - **Build Date**: ${{ steps.build_info.outputs.build_label }}
+            - **Commit**: ${{ github.sha }}
+            - **LTO Type**: ${{ env.LTO_TYPE }}
+            - **Pixel 8a Config**: ${{ env.PIXEL8A }}
+            - **Size**: ${{ steps.build_info.outputs.zip_size }}
+            
+            ### Features
+            - KernelSU-Next (next-susfs)
+            - SuSFS patches for android14-6.1
+            - Baseband-guard integration
+            - BBR TCP congestion control
+            - IPSet support
+            
+            ### Installation
+            Flash the zip file using a custom recovery or kernel flasher app.
+          files: ${{ steps.build_info.outputs.zip_file }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Build Summary
+        if: always()
+        run: |
+          echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **LTO Type**: ${{ env.LTO_TYPE }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Pixel 8a**: ${{ env.PIXEL8A }}" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "- **Output**: ${{ steps.build_info.outputs.zip_name }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **Size**: ${{ steps.build_info.outputs.zip_size }}" >> $GITHUB_STEP_SUMMARY
+          fi
