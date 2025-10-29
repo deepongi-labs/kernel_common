@@ -75,7 +75,6 @@ jobs:
       - name: Checkout Build Scripts
         uses: actions/checkout@v4
         with:
-          path: build-scripts
           fetch-depth: 1
           
       - name: Set Working Directory
