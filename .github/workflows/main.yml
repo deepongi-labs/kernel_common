@@ -49,7 +49,7 @@ env:
   LOCALVERSION: -deepongi
   
   # Repository configuration
-  KERNEL_REPO: git@github.com:aosp-mirror/kernel_common.git
+  KERNEL_REPO: https://github.com/aosp-mirror/kernel_common.git
   KERNEL_BRANCH: android14-6.1-lts
   KSUN_BRANCH: next-susfs
   ANYKERNEL_DIR: AnyKernel3-p8a
@@ -157,17 +157,8 @@ jobs:
           echo "ARM64_TOOLCHAIN=/tmp/toolchains/arm-gnu-toolchain-14.3.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-" >> $GITHUB_ENV
           echo "ARM32_TOOLCHAIN=/tmp/toolchains/arm-gnu-toolchain-14.3.rel1-x86_64-arm-none-eabi/bin/arm-none-eabi-" >> $GITHUB_ENV
           
-      - name: Setup SSH for Git
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-          
       - name: Clone Kernel Source
         run: |
-          # Add GitHub to known hosts
-          mkdir -p ~/.ssh
-          ssh-keyscan github.com >> ~/.ssh/known_hosts
-          
           # Clone kernel repository to /home/runner/work/common
           cd /home/runner/work
           git clone --depth=${{ env.REPO_DEPTH }} \
