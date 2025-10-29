@@ -72,10 +72,19 @@ jobs:
     runs-on: ubuntu-24.04
     
     steps:
-      - name: Checkout Repository
+      - name: Checkout Build Scripts
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          path: build-scripts
+          fetch-depth: 1
+          
+      - name: Set Working Directory
+        run: |
+          # Copy build script to /home/runner/work
+          cp /home/runner/work/kernel_common/kernel_common/build-scripts/build_new_opt_v5-lts.sh /home/runner/work/
+          
+          # Set working directory as environment variable for all subsequent steps
+          echo "WORK_DIR=/home/runner/work" >> $GITHUB_ENV
           
       - name: Set up Environment Variables
         run: |
@@ -85,6 +94,7 @@ jobs:
           echo "BUILD_CLEAN=${{ github.event.inputs.build_clean || 'always' }}" >> $GITHUB_ENV
           
           # Set Git SHA for artifact naming
+          cd /home/runner/work/kernel_common/kernel_common/build-scripts
           echo "GIT_SHORT_SHA=$(git rev-parse --short=7 HEAD)" >> $GITHUB_ENV
           
           # Set thread count
@@ -159,14 +169,16 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan github.com >> ~/.ssh/known_hosts
           
-          # Clone kernel repository
+          # Clone kernel repository to /home/runner/work/common
+          cd /home/runner/work
           git clone --depth=${{ env.REPO_DEPTH }} \
             -b ${{ env.KERNEL_BRANCH }} \
             ${{ env.KERNEL_REPO }} \
-            ${{ env.KERNEL_DIR }}
+            common
             
       - name: Run Build Script
         run: |
+          cd /home/runner/work
           chmod +x build_new_opt_v5-lts.sh
           ./build_new_opt_v5-lts.sh
           
@@ -174,12 +186,14 @@ jobs:
         if: success()
         id: build_info
         run: |
+          cd /home/runner/work
           # Get the built zip file
           ZIP_FILE=$(ls ${{ env.BUILDS_DIR }}/*.zip | head -n 1)
           ZIP_NAME=$(basename "$ZIP_FILE")
           ZIP_SIZE=$(du -h "$ZIP_FILE" | cut -f1)
           
-          echo "zip_file=$ZIP_FILE" >> $GITHUB_OUTPUT
+          # Store full path for upload
+          echo "zip_file=/home/runner/work/${{ env.BUILDS_DIR }}/$(basename $ZIP_FILE)" >> $GITHUB_OUTPUT
           echo "zip_name=$ZIP_NAME" >> $GITHUB_OUTPUT
           echo "zip_size=$ZIP_SIZE" >> $GITHUB_OUTPUT
           
@@ -200,8 +214,8 @@ jobs:
         with:
           name: build-logs-${{ github.run_number }}
           path: |
-            ${{ env.KERNEL_DIR }}/${{ env.OUT_DIR }}/.config
-            ${{ env.KERNEL_DIR }}/${{ env.OUT_DIR }}/compile.log
+            /home/runner/work/${{ env.KERNEL_DIR }}/${{ env.OUT_DIR }}/.config
+            /home/runner/work/${{ env.KERNEL_DIR }}/${{ env.OUT_DIR }}/compile.log
           retention-days: 7
           if-no-files-found: ignore
           
@@ -216,6 +230,7 @@ jobs:
             
             - **Build Date**: ${{ steps.build_info.outputs.build_label }}
             - **Commit**: ${{ github.sha }}
+            - **Kernel Branch**: ${{ env.KERNEL_BRANCH }}
             - **LTO Type**: ${{ env.LTO_TYPE }}
             - **Pixel 8a Config**: ${{ env.PIXEL8A }}
             - **Size**: ${{ steps.build_info.outputs.zip_size }}
